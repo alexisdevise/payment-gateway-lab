@@ -3,7 +3,7 @@
 Zero-trust **Payment Proxy API** in **Java 21 / Spring Boot 3.4**, **hexagonal architecture**, PostgreSQL + Flyway,
 designed to run on **Kubernetes** (`kind`).
 
-> **Why this repo.** After 13 years designing payment and SaaS backends on .NET / Azure, I am putting the
+> **Why this repo.** After 8 years designing payment and SaaS backends on .NET / Azure, I am putting the
 > Java / Spring / cloud-native stack back into practice on a domain I know well: multi-PSP orchestration,
 > idempotency, state machines and PII/PCI data isolation. It is a learning project, built in the open: the
 > history (small PRs, ADRs, [AI log](./AI.md)) is part of the deliverable.
