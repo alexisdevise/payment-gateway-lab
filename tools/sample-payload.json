@@ -1,0 +1,5 @@
+{
+  "order_reference": "ORD-42",
+  "customer": { "email": "jane.doe@example.com", "first_name": "Jane", "last_name": "Doe" },
+  "billing_address": { "line1": "1 rue de la Paix", "postal_code": "75002", "city": "Paris", "country_code": "FR" }
+}

@@ -1,0 +1,30 @@
+# DEV ONLY. These values are public on purpose (lab repository) and must never be used outside a laptop / kind.
+spring:
+  datasource:
+    password: ${DB_PASSWORD:payment_pass}
+  flyway:
+    locations: classpath:db/migration,classpath:db/seed
+
+logging:
+  structured:
+    format:
+      console: ""   # human-readable logs locally
+
+payment:
+  crypto:
+    keys:
+      # keyId -> base64(256-bit key), shared with the consumer apps that encrypt payloads
+      dev-2026-11: "OR+gyWqOKMP+WybfmCTzFW1LYLAZ6u2d5zCW46iv4fI="
+  consumers:
+    - id: checkout-web
+      channel: ECOMMERCE
+      merchant-id: merchant-demo
+      api-key-sha256: 180571dc3b0a005f768df736f1f36be396b48b5827f9caf4bc8352f4efdec9c6   # dev-ecommerce-key-local
+    - id: merchant-backoffice
+      channel: MERCHANT_BO
+      merchant-id: merchant-demo
+      api-key-sha256: f42484cc93a1f4e1fff048dbb7d6b1f0a8884901c4cd369a3d4a4123dc3c5799   # dev-merchant-bo-key-change-me
+    - id: other-merchant-backoffice
+      channel: MERCHANT_BO
+      merchant-id: merchant-other
+      api-key-sha256: 937158f3e31cbaa45fab25a1a6d82b119eb8e17bd9c1ffdcea3d85e1692a43cd   # dev-other-merchant-key-change-me
