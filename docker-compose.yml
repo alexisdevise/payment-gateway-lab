@@ -1,15 +1,17 @@
+# Values come from .env (git-ignored, read automatically by compose). Start from: copy .env.example .env
+# ":?" makes compose stop with a clear message if a variable is missing, instead of starting with an empty secret.
 services:
   postgres:
     image: postgres:16-alpine
     container_name: payment-postgres
     environment:
-      POSTGRES_DB: payment_db
-      POSTGRES_USER: payment_user
-      POSTGRES_PASSWORD: payment_pass
+      POSTGRES_DB: ${POSTGRES_DB:?set it in .env}
+      POSTGRES_USER: ${POSTGRES_USER:?set it in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set it in .env}
     ports:
       - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U payment_user -d payment_db"]
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]   # $$ = read inside the container
       interval: 5s
       timeout: 3s
       retries: 5
@@ -22,7 +24,13 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      SPRING_PROFILES_ACTIVE: local   # DEV ONLY: public demo keys, see application-local.yml
-      DB_URL: jdbc:postgresql://postgres:5432/payment_db   # Docker network, not the host port
+      SPRING_PROFILES_ACTIVE: local   # DEV ONLY: see application-local.yml
+      DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:?set it in .env}   # Docker network, not the host port
+      DB_USER: ${POSTGRES_USER:?set it in .env}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:?set it in .env}
+      PAYMENT_CRYPTO_KEY_DEV: ${PAYMENT_CRYPTO_KEY_DEV:?set it in .env}
+      API_KEY_SHA256_CHECKOUT_WEB: ${API_KEY_SHA256_CHECKOUT_WEB:?set it in .env}
+      API_KEY_SHA256_MERCHANT_BACKOFFICE: ${API_KEY_SHA256_MERCHANT_BACKOFFICE:?set it in .env}
+      API_KEY_SHA256_OTHER_MERCHANT_BACKOFFICE: ${API_KEY_SHA256_OTHER_MERCHANT_BACKOFFICE:?set it in .env}
     ports:
       - "8080:8080"

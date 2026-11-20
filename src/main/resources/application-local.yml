@@ -1,7 +1,12 @@
-# DEV ONLY. These values are public on purpose (lab repository) and must never be used outside a laptop / kind.
+# DEV ONLY. Never used outside a laptop / kind.
+# Secrets come from environment variables (docker compose / K8s Secret), or from .env for IDE runs (import below).
 spring:
+  config:
+    import: optional:file:.env[.properties]   # .env is KEY=VALUE, read as a properties file; absent in containers
   datasource:
-    password: ${DB_PASSWORD:payment_pass}
+    # Containers set DB_USER / DB_PASSWORD; IDE runs fall back to the POSTGRES_* entries of .env. No hard-coded value.
+    username: ${DB_USER:${POSTGRES_USER}}
+    password: ${DB_PASSWORD:${POSTGRES_PASSWORD}}
   flyway:
     locations: classpath:db/migration,classpath:db/seed
 
@@ -14,17 +19,18 @@ payment:
   crypto:
     keys:
       # keyId -> base64(256-bit key), shared with the consumer apps that encrypt payloads
-      dev-2026-11: "OR+gyWqOKMP+WybfmCTzFW1LYLAZ6u2d5zCW46iv4fI="
+      dev-2026-11: ${PAYMENT_CRYPTO_KEY_DEV}   # no default: the app fails at startup if it is not provided
+  # Who the consumers are (id, channel, merchant) is plain config; their API key hashes are secrets from the env.
   consumers:
     - id: checkout-web
       channel: ECOMMERCE
       merchant-id: merchant-demo
-      api-key-sha256: 180571dc3b0a005f768df736f1f36be396b48b5827f9caf4bc8352f4efdec9c6   # dev-ecommerce-key-local
+      api-key-sha256: ${API_KEY_SHA256_CHECKOUT_WEB}
     - id: merchant-backoffice
       channel: MERCHANT_BO
       merchant-id: merchant-demo
-      api-key-sha256: f42484cc93a1f4e1fff048dbb7d6b1f0a8884901c4cd369a3d4a4123dc3c5799   # dev-merchant-bo-key-change-me
+      api-key-sha256: ${API_KEY_SHA256_MERCHANT_BACKOFFICE}
     - id: other-merchant-backoffice
       channel: MERCHANT_BO
       merchant-id: merchant-other
-      api-key-sha256: 937158f3e31cbaa45fab25a1a6d82b119eb8e17bd9c1ffdcea3d85e1692a43cd   # dev-other-merchant-key-change-me
+      api-key-sha256: ${API_KEY_SHA256_OTHER_MERCHANT_BACKOFFICE}

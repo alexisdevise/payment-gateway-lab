@@ -37,11 +37,16 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * End to end through HTTP, Spring, Flyway and a real PostgreSQL (Testcontainers).
- * Uses the "local" profile for dev keys / consumers / demo PSP contracts.
+ * Uses the "local" profile for consumers / demo PSP contracts. The test owns its secrets (no .env in CI):
+ * the AES key and the SHA-256 of the API keys below; the datasource comes from Testcontainers via @ServiceConnection.
  */
 @Testcontainers
 @ActiveProfiles("local")
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
+        "PAYMENT_CRYPTO_KEY_DEV=OR+gyWqOKMP+WybfmCTzFW1LYLAZ6u2d5zCW46iv4fI=",
+        "API_KEY_SHA256_CHECKOUT_WEB=180571dc3b0a005f768df736f1f36be396b48b5827f9caf4bc8352f4efdec9c6",
+        "API_KEY_SHA256_MERCHANT_BACKOFFICE=f42484cc93a1f4e1fff048dbb7d6b1f0a8884901c4cd369a3d4a4123dc3c5799",
+        "API_KEY_SHA256_OTHER_MERCHANT_BACKOFFICE=937158f3e31cbaa45fab25a1a6d82b119eb8e17bd9c1ffdcea3d85e1692a43cd"})
 class PaymentApiIntegrationTest {
 
     @Container

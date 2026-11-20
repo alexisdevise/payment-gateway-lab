@@ -1,0 +1,11 @@
+# Normalise text files to LF in the repository; Git picks the working-tree EOL below.
+* text=auto
+
+# Files executed inside Linux containers must keep LF, even on Windows checkouts (core.autocrlf=true).
+mvnw        text eol=lf
+*.sh        text eol=lf
+Dockerfile  text eol=lf
+
+# Windows scripts need CRLF.
+*.cmd       text eol=crlf
+*.bat       text eol=crlf

@@ -1,14 +1,7 @@
-# 1. Configuration et Secrets
-apiVersion: v1
-kind: Secret
-metadata:
-  name: postgres-secret
-type: Opaque
-stringData:
-  POSTGRES_DB: payment_db
-  POSTGRES_USER: payment_user
-  POSTGRES_PASSWORD: payment_pass
----
+# 1. Configuration
+# Le Secret "payment-secrets" n'est PAS dans ce fichier : launchK8s.cmd le crée à partir de .env (ignoré par git) :
+#   kubectl create secret generic payment-secrets --from-env-file=.env
+# En preprod / prod, c'est un ExternalSecret (Key Vault) qui crée ce même Secret ; les Deployments ne changent pas.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -17,13 +10,30 @@ data:
   SPRING_PROFILES_ACTIVE: "local"
   DB_URL: "jdbc:postgresql://postgres:5432/payment_db"
 ---
-# 2. Base de données PostgreSQL (Deployment + Service interne)
+# 2. Base de données PostgreSQL (PVC + Deployment + Service interne)
+# Volume persistant : les données survivent à la suppression / recréation du pod.
+# StorageClass par défaut du cluster (kind / Docker Desktop : "standard", local-path, lié à un node).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-data
+spec:
+  accessModes:
+    - ReadWriteOnce # Un seul node à la fois peut monter le volume
+  resources:
+    requests:
+      storage: 1Gi
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: postgres
 spec:
   replicas: 1
+  # Recreate (et pas RollingUpdate) : l'ancien pod libère le volume RWO avant que le nouveau ne démarre.
+  # Deux Postgres sur le même répertoire de données = corruption.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: postgres
@@ -37,14 +47,61 @@ spec:
           image: postgres:16-alpine
           ports:
             - containerPort: 5432
-          envFrom:
-            - secretRef:
-                name: postgres-secret
+          # Clé par clé (pas envFrom) : Postgres ne reçoit que ce qui le concerne, pas la clé AES.
+          env:
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: payment-secrets
+                  key: POSTGRES_DB
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: payment-secrets
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: payment-secrets
+                  key: POSTGRES_PASSWORD
+            # Sous-dossier du volume : la racine d'un volume peut contenir "lost+found", ce qui fait échouer initdb.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+          # Sans ce bloc, le pod serait en QoS "BestEffort" : premier évincé si le node manque de RAM.
+          # Avec une request, il passe en "Burstable".
+          resources:
+            requests:
+              memory: "256Mi" # shared_buffers (128MB par défaut) + connexions Hikari des 3 replicas + cache
+              cpu: "100m"
+            limits:
+              memory: "512Mi" # Protège le node si Postgres s'emballe (OOMKill au-delà)
+              # Pas de limite CPU, volontairement : le throttling d'une DB provoque des timeouts en cascade côté app.
+          # startup : au 1er démarrage sur volume vide, initdb tourne avec un serveur temporaire SANS écoute TCP.
+          # Sans cette probe, la liveness (TCP) pourrait tuer Postgres en pleine initialisation du volume.
+          startupProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -h 127.0.0.1 -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""]
+            periodSeconds: 5
+            failureThreshold: 30 # jusqu'à 150 s pour démarrer
+          # readiness stricte : dès que Postgres ne répond plus, il sort du Service (pas de redémarrage).
           readinessProbe:
             exec:
-              command: ["pg_isready", "-U", "payment_user", "-d", "payment_db"]
-            initialDelaySeconds: 5
+              command: ["sh", "-c", "pg_isready -h 127.0.0.1 -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""]
             periodSeconds: 5
+          # liveness tolérante : un simple test du port, et 1 minute d'échecs avant de redémarrer.
+          # Une base lente mais vivante ne doit pas être redémarrée (on transformerait une lenteur en panne).
+          livenessProbe:
+            tcpSocket:
+              port: 5432
+            periodSeconds: 10
+            failureThreshold: 6
+      volumes:
+        - name: postgres-data
+          persistentVolumeClaim:
+            claimName: postgres-data
 ---
 apiVersion: v1
 kind: Service
@@ -86,6 +143,37 @@ spec:
           envFrom:
             - configMapRef:
                 name: app-config
+          env:
+            - name: DB_USER # nom de la variable vue par Spring
+              valueFrom:
+                secretKeyRef:
+                  name: payment-secrets # le Secret
+                  key: POSTGRES_USER # la clé dans ce Secret
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: payment-secrets
+                  key: POSTGRES_PASSWORD
+            - name: PAYMENT_CRYPTO_KEY_DEV
+              valueFrom:
+                secretKeyRef:
+                  name: payment-secrets
+                  key: PAYMENT_CRYPTO_KEY_DEV
+            - name: API_KEY_SHA256_CHECKOUT_WEB
+              valueFrom:
+                secretKeyRef:
+                  name: payment-secrets
+                  key: API_KEY_SHA256_CHECKOUT_WEB
+            - name: API_KEY_SHA256_MERCHANT_BACKOFFICE
+              valueFrom:
+                secretKeyRef:
+                  name: payment-secrets
+                  key: API_KEY_SHA256_MERCHANT_BACKOFFICE
+            - name: API_KEY_SHA256_OTHER_MERCHANT_BACKOFFICE
+              valueFrom:
+                secretKeyRef:
+                  name: payment-secrets
+                  key: API_KEY_SHA256_OTHER_MERCHANT_BACKOFFICE
           # Exploitée par JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=75" dans ton Dockerfile
           resources:
             requests:
@@ -95,25 +183,36 @@ spec:
               memory: "1Gi"
               cpu: "1000m"
           # Remplace le HEALTHCHECK du Dockerfile (désactivé par Kubernetes)
+          # startup : teste toutes les 5 s dès le lancement, tolère jusqu'à 150 s de démarrage (CPU limité,
+          # 3 pods en parallèle, Flyway...). Tant qu'elle n'a pas réussi, readiness et liveness sont en pause,
+          # donc plus besoin d'initialDelaySeconds devinés à la main.
+          startupProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8080
+            periodSeconds: 5
+            failureThreshold: 30
           readinessProbe:
             httpGet:
               path: /actuator/health/readiness
               port: 8080
-            initialDelaySeconds: 20
             periodSeconds: 10
+          # Le groupe liveness de Spring ne vérifie pas la DB : une panne Postgres ne redémarre pas les pods app.
           livenessProbe:
             httpGet:
               path: /actuator/health/liveness
               port: 8080
-            initialDelaySeconds: 40
             periodSeconds: 15
+            failureThreshold: 3
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: payment-app
 spec:
-  type: ClusterIP
+  # LoadBalancer : en mode kind, Docker Desktop crée un conteneur "kindccm-..." qui publie ce port sur la machine
+  # -> http://localhost:8080 sans kubectl port-forward. Sur AKS / EKS, ce même type crée un vrai load balancer cloud.
+  type: LoadBalancer
   selector:
     app: payment-app
   ports:

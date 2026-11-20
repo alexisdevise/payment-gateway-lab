@@ -57,6 +57,15 @@ com.alexis.payment
 
 ## Run it locally
 
+Local secrets (DB password, AES payload key, SHA-256 of the consumer API keys) live in a git-ignored `.env`. Create it once from the template:
+
+```bash
+cp .env.example .env                                   # Windows: copy .env.example .env
+```
+
+It feeds docker compose, the kind deployment (`launchK8s.cmd` turns it into the `payment-secrets` K8s Secret)
+and IDE / Maven runs of the `local` profile. The app refuses to start if a secret is missing.
+
 **Everything in Docker** (only Docker needed):
 
 ```bash
